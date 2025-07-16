@@ -1,13 +1,19 @@
 use std::io;
 
+struct Todo {
+    title: String,
+    completed: bool,
+}
+
 fn main() {
-    let mut todos: Vec<String> = vec![];
+    let mut todos: Vec<Todo> = vec![];
 
     loop {
         println!("\n1. Add a todo");
         println!("2. View todos");
-        println!("3. Remove a todo");
-        println!("4. Exit\n");
+        println!("3. Toggle a todo");
+        println!("4. Remove a todo");
+        println!("5. Exit\n");
 
         let mut input = String::new();
 
@@ -30,15 +36,39 @@ fn main() {
                 io::stdin()
                     .read_line(&mut todo)
                     .expect("Failed to read line");
-                todos.push(todo.trim().to_string());
+                todos.push(Todo {
+                    title: todo.trim().to_string(),
+                    completed: false,
+                });
             }
             2 => {
                 println!("Todos:");
+
                 for todo in &todos {
-                    println!("- {}", todo);
+                    let status = if todo.completed { "✅" } else { "[]" };
+                    println!("- {} {}", status, todo.title);
                 }
             }
             3 => {
+                println!("Enter the index of the todo to toggle:");
+                let mut index = String::new();
+                io::stdin()
+                    .read_line(&mut index)
+                    .expect("Failed to read line");
+                let index: usize = match index.trim().parse() {
+                    Ok(num) => num,
+                    Err(_) => {
+                        println!("\nInvalid index, please enter a number.");
+                        continue;
+                    }
+                };
+                if index < todos.len() {
+                    todos[index].completed = !todos[index].completed;
+                } else {
+                    println!("\nInvalid index, please enter a valid index.");
+                }
+            }
+            4 => {
                 println!("Enter the index of the todo to remove:");
                 let mut index = String::new();
                 io::stdin()
@@ -57,7 +87,7 @@ fn main() {
                     println!("\nInvalid index, please enter a valid index.");
                 }
             }
-            4 => {
+            5 => {
                 break;
             }
             _ => {
