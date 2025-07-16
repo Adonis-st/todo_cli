@@ -1,98 +1,155 @@
-use std::io;
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use ratatui::{
+    Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
+};
+use std::io::{self, Write};
 
 struct Todo {
     title: String,
     completed: bool,
 }
 
-fn main() {
+enum InputMode {
+    Normal,
+    Editing,
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
     let mut todos: Vec<Todo> = vec![];
+    let mut selected: usize = 0;
+    let mut input_mode = InputMode::Normal;
+    let mut input = String::new();
 
     loop {
-        println!("\n1. Add a todo");
-        println!("2. View todos");
-        println!("3. Toggle a todo");
-        println!("4. Remove a todo");
-        println!("5. Exit\n");
+        terminal.draw(|f| {
+            let size = f.size();
 
-        let mut input = String::new();
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(1), Constraint::Length(3)])
+                .split(size);
 
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read line");
+            // Todo list
+            let items: Vec<ListItem> = todos
+                .iter()
+                .enumerate()
+                .map(|(i, todo)| {
+                    let status = if todo.completed { " ✅" } else { " □" };
+                    let line = Line::from(Span::raw(format!("{} {}", status, todo.title)));
+                    let style = if i == selected {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(line).style(style)
+                })
+                .collect();
 
-        let input: u32 = match input.trim().parse() {
-            Ok(num) => num,
-            Err(_) => {
-                println!("\nInvalid choice, please enter a number between 1 and 4.");
-                continue;
-            }
-        };
+            let list = List::new(items)
+                .block(
+                    Block::default()
+                        .title("📋 Todos (↑↓ Space a d q)")
+                        .borders(Borders::ALL),
+                )
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
-        match input {
-            1 => {
-                println!("Enter a todo:");
-                let mut todo = String::new();
-                io::stdin()
-                    .read_line(&mut todo)
-                    .expect("Failed to read line");
-                todos.push(Todo {
-                    title: todo.trim().to_string(),
-                    completed: false,
-                });
-            }
-            2 => {
-                println!("Todos:");
+            f.render_widget(list, chunks[0]);
 
-                for todo in &todos {
-                    let status = if todo.completed { "✅" } else { "[]" };
-                    println!("- {} {}", status, todo.title);
+            // Input box
+            let prompt = match input_mode {
+                InputMode::Normal => Span::raw("Press 'a' to add todo, 'q' to quit"),
+                InputMode::Editing => Span::raw(format!("New Todo: {}", input)),
+            };
+
+            let input_paragraph = Paragraph::new(Line::from(prompt))
+                .block(Block::default().borders(Borders::ALL).title("Input"));
+
+            f.render_widget(input_paragraph, chunks[1]);
+        })?;
+
+        // Handle key events
+        if event::poll(std::time::Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                match input_mode {
+                    InputMode::Normal => match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char('a') => {
+                            input_mode = InputMode::Editing;
+                            input.clear();
+                        }
+                        KeyCode::Char('d') => {
+                            if !todos.is_empty() && selected < todos.len() {
+                                todos.remove(selected);
+                                if selected >= todos.len() && selected > 0 {
+                                    selected -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Char(' ') => {
+                            if selected < todos.len() {
+                                todos[selected].completed = !todos[selected].completed;
+                            }
+                        }
+                        KeyCode::Down => {
+                            if selected + 1 < todos.len() {
+                                selected += 1;
+                            }
+                        }
+                        KeyCode::Up => {
+                            if selected > 0 {
+                                selected -= 1;
+                            }
+                        }
+                        _ => {}
+                    },
+                    InputMode::Editing => match key.code {
+                        KeyCode::Esc => {
+                            input_mode = InputMode::Normal;
+                            input.clear();
+                        }
+                        KeyCode::Enter => {
+                            if !input.trim().is_empty() {
+                                todos.push(Todo {
+                                    title: input.trim().to_string(),
+                                    completed: false,
+                                });
+                            }
+                            input_mode = InputMode::Normal;
+                            input.clear();
+                        }
+                        KeyCode::Char(c) => {
+                            input.push(c);
+                        }
+                        KeyCode::Backspace => {
+                            input.pop();
+                        }
+                        _ => {}
+                    },
                 }
-            }
-            3 => {
-                println!("Enter the index of the todo to toggle:");
-                let mut index = String::new();
-                io::stdin()
-                    .read_line(&mut index)
-                    .expect("Failed to read line");
-                let index: usize = match index.trim().parse() {
-                    Ok(num) => num,
-                    Err(_) => {
-                        println!("\nInvalid index, please enter a number.");
-                        continue;
-                    }
-                };
-                if index < todos.len() {
-                    todos[index].completed = !todos[index].completed;
-                } else {
-                    println!("\nInvalid index, please enter a valid index.");
-                }
-            }
-            4 => {
-                println!("Enter the index of the todo to remove:");
-                let mut index = String::new();
-                io::stdin()
-                    .read_line(&mut index)
-                    .expect("Failed to read line");
-                let index: usize = match index.trim().parse() {
-                    Ok(num) => num,
-                    Err(_) => {
-                        println!("\nInvalid index, please enter a number.");
-                        continue;
-                    }
-                };
-                if index < todos.len() {
-                    todos.remove(index);
-                } else {
-                    println!("\nInvalid index, please enter a valid index.");
-                }
-            }
-            5 => {
-                break;
-            }
-            _ => {
-                println!("Invalid choice, please enter a number between 1 and 4.");
             }
         }
     }
+
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    Ok(())
 }
